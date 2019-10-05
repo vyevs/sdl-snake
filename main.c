@@ -250,6 +250,20 @@ struct audio_data {
     u8 *pos;
 };
 
+struct audio_player {
+    char *file;
+
+    SDL_AudioDeviceID device_id;
+
+    SDL_atomic_t playing;
+
+    u32 len;
+    u8 *buf;
+};
+
+void start_audio(struct audio_player *player) {
+}
+
 void audio_callback(void *userdata, unsigned char *stream, int len) {
     struct audio_data *data = (struct audio_data *) userdata;
 
@@ -299,7 +313,7 @@ int audio(void *data) {
 
 	SDL_PauseAudio(0);
 
-	while(SDL_AtomicGet(&audio_data.len) > 0)
+	while(SDL_AtomicGet(&
 	    SDL_Delay(100);
 	
 	SDL_CloseAudio();
@@ -380,32 +394,28 @@ int main(int argc, char *argv[]) {
 		    case SDL_SCANCODE_UP:
 			if (moved_since_last_dir_change && snake.direction.y != 1) {
 			    moved_since_last_dir_change = false;
-			    snake.direction.y = -1;
-			    snake.direction.x = 0;
+			    snake.direction = DIRECTION_UP;
 		        }
 			break;
 
 		    case SDL_SCANCODE_DOWN:
 			if (moved_since_last_dir_change && snake.direction.y != -1) {
 			    moved_since_last_dir_change = false;
-			    snake.direction.y = 1;
-			    snake.direction.x = 0;
+			    snake.direction = DIRECTION_DOWN;
 		        }
 			break;
 
 		    case SDL_SCANCODE_LEFT:
 			if (moved_since_last_dir_change && snake.direction.x != 1) {
 			    moved_since_last_dir_change = false;
-			    snake.direction.x = -1;
-			    snake.direction.y = 0;
+			    snake.direction = DIRECTION_LEFT;
 		        }
 			break;
 
 		    case SDL_SCANCODE_RIGHT:
 			if (moved_since_last_dir_change && snake.direction.x != -1) {
 			    moved_since_last_dir_change = false;
-			    snake.direction.x = 1;
-			    snake.direction.y = 0;
+			    snake.direction = DIRECTION_RIGHT;
 		        }
 			break;
 
