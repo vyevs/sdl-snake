@@ -13,22 +13,56 @@
 
 #include "types.h"
 
-#define GRID_WIDTH 40
-#define GRID_HEIGHT 40
+#define GRID_WIDTH 20
+#define GRID_HEIGHT 20
 
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 800
 
 #define INITIAL_SNAKE_LEN 10
 
-struct snake_piece {
-    s32 x, y;
-    struct snake_piece *next;
-};
+
+// returns u32 in the range [0, bound) preventing modulo bias
+u32 uniform_u32(u32 bound) {
+    u32 v = rand();
+
+    while (v >= RAND_MAX - (RAND_MAX % bound)) {
+	v = rand();
+    };
+    return v % bound;
+}
+
 
 struct vec2 {
     s32 x, y;
 };
+
+struct snake_piece {
+    struct vec2 pos;
+    struct snake_piece *next;
+};
+
+// returns the position after moving pos in direction dir
+// but bounded in x direction by [0, bound_x) and in the y direction by [0, bound_y)
+// assumes dx < bound-x && dy < bound_x
+struct vec2 move_in_bounded_direction(struct vec2 pos, struct vec2 dir, u32 bound_x, u32 bound_y) {
+    struct vec2 new_pos;
+
+    new_pos.x = pos.x + dir.x; 
+    if (new_pos.x < 0)
+	new_pos.x = bound_x + new_pos.x;
+    else if (new_pos.x >= bound_x)
+	new_pos.x = new_pos.x - bound_x;
+
+
+    new_pos.y = pos.y + dir.y;
+    if (new_pos.y < 0)
+	new_pos.y = bound_y + new_pos.y;
+    else if (new_pos.y >= bound_y)
+	new_pos.y = new_pos.y - bound_y;
+
+    return new_pos;
+}
 
 #define VEC2S_EQUAL(v1, v2) ((v1.x) == (v2.x) && (v1.y) == (v2.y))
 
@@ -65,10 +99,12 @@ struct snake {
 };
 
 void init_snake(struct snake *snake) {
+    assert(snake);
+
     snake->bound_x = GRID_WIDTH;
     snake->bound_y = GRID_HEIGHT;
 
-    snake->direction = directions[rand() % 4];
+    snake->direction = directions[uniform_u32(4)];
 
 
     // want to draw the snake tail in the opposite direction of the initial direction
@@ -93,33 +129,21 @@ void init_snake(struct snake *snake) {
 	assert(new_tail);
 
 	if (snake->tail) {
-	    new_tail->x = snake->tail->x + tail_direction.x;
-	    if (new_tail->x < 0)
-		new_tail->x = snake->bound_x - 1;
-	    else if (new_tail->x >= snake->bound_x)
-		new_tail->x = 0;
-
-
-	    new_tail->y = snake->tail->y + tail_direction.y;
-	    if (new_tail->y < 0)
-		new_tail->y = snake->bound_y - 1;
-	    else if (new_tail->y >= snake->bound_y)
-		new_tail->y = 0;
-
+	    new_tail->pos = move_in_bounded_direction(snake->tail->pos, tail_direction, snake->bound_x, snake->bound_y);
 	   
 	    new_tail->next = snake->tail;
 	    snake->tail = new_tail;
 	} else {
 	    new_tail->next = NULL;
-	    new_tail->x = rand() % snake->bound_x;
-	    new_tail->y = rand() % snake->bound_y;
+	    new_tail->pos.x = uniform_u32(snake->bound_x);
+	    new_tail->pos.y = uniform_u32(snake->bound_y);
 
 	    snake->head = snake->tail = new_tail;
 	}
     }
 
-    snake->food_pos.x = rand() % snake->bound_x;
-    snake->food_pos.y = rand() % snake->bound_y;
+    snake->food_pos.x = uniform_u32(snake->bound_x);
+    snake->food_pos.y = uniform_u32(snake->bound_y);
 
     snake->score = 0;
 
@@ -128,19 +152,27 @@ void init_snake(struct snake *snake) {
 
 struct vec2 next_food_pos(const struct snake *snake)
 {
+    assert(snake);
+
     struct vec2 result;
 
-    while (1) {
-	result.x = rand() % snake->bound_x;
-	result.y = rand() % snake->bound_y;
+    // This is a perfectly fine way to generate a piece without colliding with a snake piece
+    // Maybe it could be more reliable in face of a really long snake but there is no such use case now
+    bool pos_taken;
+
+    do {
+	pos_taken = false;
+
+	result.x = uniform_u32(snake->bound_x);
+	result.y = uniform_u32(snake->bound_y);
 
 	for (struct snake_piece *walk = snake->tail; walk; walk = walk->next)
-	    if (result.x == walk->x && result.y == walk->y)
-		continue;
+	    if (VEC2S_EQUAL(result, walk->pos)) {
+		pos_taken = true;
+		break;
+	    }
 	
-	break;
-    }
-
+    } while(pos_taken);
 
     return result;
 }
@@ -153,20 +185,11 @@ void move_snake(struct snake *snake) {
 
     new_piece->next = NULL;
 
-    new_piece->x = snake->head->x + snake->direction.x;
-    if (new_piece->x < 0)
-	new_piece->x = snake->bound_x - 1;
-    else if (new_piece->x >= snake->bound_x)
-	new_piece->x = 0;
+    new_piece->pos = move_in_bounded_direction(snake->head->pos, snake->direction, snake->bound_x, snake->bound_y);
 
-    new_piece->y = snake->head->y + snake->direction.y;
-    if (new_piece->y < 0)
-	new_piece->y = snake->bound_y - 1;
-    else if (new_piece->y >= snake->bound_y)
-	new_piece->y = 0;
-
+    // if the snake's new head is in the same position as any of its other pieces, then we die
     for (struct snake_piece *walk = snake->tail; walk; walk = walk->next) {
-	if (new_piece->x == walk->x && new_piece->y == walk->y) {
+	if (VEC2S_EQUAL(new_piece->pos, walk->pos)) {
 	    snake->died = true;
 	    return;
         }
@@ -176,8 +199,9 @@ void move_snake(struct snake *snake) {
     snake->head = new_piece;
 
 
+    // if the snake's head is on the food, we eat it, and make a new one
     bool ate = false;
-    if (new_piece->x == snake->food_pos.x && new_piece->y == snake->food_pos.y) {
+    if (VEC2S_EQUAL(snake->head->pos, snake->food_pos)) {
 	ate = true;
 	snake->score++;
 
@@ -212,7 +236,7 @@ void draw_snake_to_surface(const struct snake *snake, SDL_Surface *surface) {
     u32 *pixels = (u32 *) surface->pixels;
 
     for (struct snake_piece *walk = snake->tail; walk; walk = walk->next) {
-	u32 pixel_idx = walk->y * snake->bound_x + walk->x;
+	u32 pixel_idx = walk->pos.y * snake->bound_x + walk->pos.x;
 
 	pixels[pixel_idx] = 0;
     }
@@ -253,8 +277,10 @@ int audio(void *data) {
     u32 len;
     u8 *wav_buf;
 
-    if (SDL_LoadWAV(wav_file, &wav_spec, &wav_buf, &len) == NULL)
-	return 1;
+    if (SDL_LoadWAV(wav_file, &wav_spec, &wav_buf, &len) == NULL) {
+	fprintf(stderr, "SDL_LoadWAV: %s\n", SDL_GetError());
+    	return 1;
+    }
 
     while (true) {
 	printf("starting audio playback\n");
